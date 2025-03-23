@@ -7,42 +7,58 @@
     body {
       font-family: 'Helvetica Neue', sans-serif;
       background: #f9f9f9;
-      padding: 40px 0;
+      padding: 20px 0;
       color: #333;
     }
-    .content {
-      max-width: 960px;
+
+    .container {
+      max-width: 1200px;
       margin: auto;
       padding: 0 20px;
     }
+
+    .top-bar {
+      position: sticky;
+      top: 0;
+      background: #f9f9f9;
+      padding-bottom: 10px;
+      z-index: 10;
+    }
+
     textarea {
       width: 100%;
-      height: 120px;
+      height: 100px;
       font-size: 14px;
       padding: 10px;
       border-radius: 8px;
       border: 1px solid #ccc;
-      margin-bottom: 10px;
       box-sizing: border-box;
+      margin-bottom: 10px;
     }
+
     button {
       background: #007BFF;
       color: white;
       border: none;
       border-radius: 6px;
-      padding: 10px 20px;
+      padding: 8px 18px;
       font-weight: bold;
       margin-right: 10px;
       cursor: pointer;
       transition: background 0.3s;
     }
+
     button:hover {
       background: #0056b3;
     }
+
     .table-wrapper {
       overflow-x: auto;
       margin-top: 20px;
+      max-height: 70vh;
+      overflow-y: auto;
     }
+
     table {
       width: 100%;
       border-collapse: collapse;
@@ -50,6 +66,7 @@
       overflow: hidden;
       box-shadow: 0 0 10px rgba(0,0,0,0.05);
     }
+
     th, td {
       border: 1px solid #e0e0e0;
       padding: 10px;
@@ -58,23 +75,31 @@
       min-width: 90px;
       white-space: nowrap;
     }
+
     th {
+      position: sticky;
+      top: 0;
       background-color: #f0f2f5;
+      z-index: 5;
     }
+
     tr:hover {
       background-color: #f1faff;
     }
+
     .error {
       color: red;
     }
   </style>
 </head>
 <body>
-  <div class="content">
-    <h2>Soneium 批量活跃度查询</h2>
-    <textarea id="addressInput" placeholder="请输入钱包地址，每行一个"></textarea><br />
-    <button onclick="startQuery()">查询全部</button>
-    <button onclick="startQuery(true)">查询选中地址</button>
+  <div class="container">
+    <div class="top-bar">
+      <h2>Soneium 批量活跃度查询</h2>
+      <textarea id="addressInput" placeholder="请输入钱包地址，每行一个"></textarea>
+      <button onclick="importAddresses()">导入地址</button>
+      <button onclick="startQuery()">开始查询</button>
+    </div>
 
     <div class="table-wrapper">
       <table id="resultTable">
@@ -97,9 +122,10 @@
         <tbody id="resultBody"></tbody>
       </table>
     </div>
-  </div>
-
   <script>
+    let allAddrs = [];
+    const rowMap = {};
+
     function formatTimeAgo(dateStr) {
       if (!dateStr) return '-';
       const date = new Date(dateStr);
@@ -126,6 +152,30 @@
     function getMonthKey(dateStr) {
       const d = new Date(dateStr);
       return `${d.getUTCFullYear()}-${d.getUTCMonth() + 1}`;
+    }
+
+    function importAddresses() {
+      const input = document.getElementById("addressInput").value.trim();
+      allAddrs = input.split("\n").map(line => line.trim()).filter(line => line.length === 42 && line.startsWith("0x"));
+      const tbody = document.getElementById("resultBody");
+      tbody.innerHTML = "";
+      allAddrs.forEach((addr, index) => {
+        const row = document.createElement("tr");
+        row.innerHTML = `
+          <td><input type="checkbox" class="row-checkbox" data-address="${addr}" checked /></td>
+          <td>${index + 1}</td>
+          <td>${addr}</td>
+          <td colspan="9">等待查询...</td>
+        `;
+        tbody.appendChild(row);
+        rowMap[addr.toLowerCase()] = row;
+      });
+      document.getElementById("selectAll").checked = true;
+    }
+
+    function toggleAll(source) {
+      const checkboxes = document.querySelectorAll('.row-checkbox');
+      checkboxes.forEach(cb => cb.checked = source.checked);
     }
 
     async function fetchStats(address) {
@@ -205,53 +255,17 @@
       }
     }
 
-    function toggleAll(source) {
-      const checkboxes = document.querySelectorAll('.row-checkbox');
-      checkboxes.forEach(cb => cb.checked = source.checked);
-    }
-
-    function saveToCache(data) {
-      localStorage.setItem("soneium_cache", JSON.stringify(data));
-    }
-
-    function loadFromCache() {
-      return JSON.parse(localStorage.getItem("soneium_cache") || "[]");
-    }
-
-    async function startQuery(onlySelected = false) {
-      const input = document.getElementById("addressInput").value.trim();
-      const allAddrs = input.split("\n").map(line => line.trim()).filter(line => line.length === 42 && line.startsWith("0x"));
-      const tbody = document.getElementById("resultBody");
-      const rowMap = {};
-
-      if (!onlySelected) {
-        tbody.innerHTML = "";
-        allAddrs.forEach((addr, index) => {
-          const row = document.createElement("tr");
-          row.innerHTML = `
-            <td><input type="checkbox" class="row-checkbox" data-address="${addr}" /></td>
-            <td>${index + 1}</td>
-            <td>${addr}</td>
-            <td colspan="9">等待查询...</td>
-          `;
-          tbody.appendChild(row);
-          rowMap[addr.toLowerCase()] = row;
-        });
-      }
-
+    async function startQuery() {
       const checkboxes = [...document.querySelectorAll('.row-checkbox')];
-      const selectedAddrs = checkboxes
-        .filter(cb => (!onlySelected || cb.checked))
-        .map(cb => cb.dataset.address);
+      const selectedAddrs = checkboxes.filter(cb => cb.checked).map(cb => cb.dataset.address);
 
       if (selectedAddrs.length === 0) {
         alert("请选择至少一个地址！");
         return;
       }
 
-      const results = [];
-      const maxConcurrency = 5;
       let index = 0;
+      const maxConcurrency = 5;
 
       async function runBatch() {
         const batch = [];
@@ -266,7 +280,7 @@
             const timeColorClass = daysAgo > 7 ? "error" : "";
 
             row.innerHTML = `
-              <td><input type="checkbox" class="row-checkbox" data-address="${addr}" ${onlySelected ? "checked" : ""}/></td>
+              <td><input type="checkbox" class="row-checkbox" data-address="${addr}" checked /></td>
               <td>${allAddrs.indexOf(addr) + 1}</td>
               <td>${addr}</td>
               <td>${txRes.txCount}</td>
@@ -279,11 +293,6 @@
               <td>${statRes.feeUSD}</td>
               <td class="${hasError ? 'error' : ''}">${hasError ? txRes.error || statRes.error : "✅"}</td>
             `;
-            results.push({
-              address: addr,
-              ...txRes,
-              ...statRes
-            });
           })());
         }
         await Promise.all(batch);
@@ -291,16 +300,7 @@
       }
 
       await runBatch();
-      saveToCache(results);
     }
-
-    window.addEventListener("DOMContentLoaded", () => {
-      const cache = loadFromCache();
-      if (cache.length > 0) {
-        document.getElementById("addressInput").value = cache.map(item => item.address).join("\n");
-        // startQuery(); // ← 不再自动查询
-      }
-    });
   </script>
 </body>
 </html>
