@@ -7,10 +7,13 @@
     body {
       font-family: 'Helvetica Neue', sans-serif;
       background: #f9f9f9;
-      padding: 40px;
+      padding: 40px 0;
+      color: #333;
+    }
+    .content {
       max-width: 960px;
       margin: auto;
-      color: #333;
+      padding: 0 20px;
     }
     textarea {
       width: 100%;
@@ -64,30 +67,32 @@
   </style>
 </head>
 <body>
-  <h2>Soneium 批量活跃度查询</h2>
-  <textarea id="addressInput" placeholder="请输入钱包地址，每行一个"></textarea><br />
-  <button onclick="startQuery()">查询全部</button>
-  <button onclick="startQuery(true)">查询选中地址</button>
+  <div class="content">
+    <h2>Soneium 批量活跃度查询</h2>
+    <textarea id="addressInput" placeholder="请输入钱包地址，每行一个"></textarea><br />
+    <button onclick="startQuery()">查询全部</button>
+    <button onclick="startQuery(true)">查询选中地址</button>
 
-  <table id="resultTable">
-    <thead>
-      <tr>
-        <th><input type="checkbox" id="selectAll" onclick="toggleAll(this)" /></th>
-        <th>#</th>
-        <th>地址</th>
-        <th>TX</th>
-        <th>日活</th>
-        <th>周活</th>
-        <th>月活</th>
-        <th>合约数</th>
-        <th>最后交易</th>
-        <th>ETH余额</th>
-        <th>Gas总消耗（USD）</th>
-        <th>状态</th>
-      </tr>
-    </thead>
-    <tbody id="resultBody"></tbody>
-  </table>
+    <table id="resultTable">
+      <thead>
+        <tr>
+          <th><input type="checkbox" id="selectAll" onclick="toggleAll(this)" /></th>
+          <th>#</th>
+          <th>地址</th>
+          <th>TX</th>
+          <th>日活</th>
+          <th>周活</th>
+          <th>月活</th>
+          <th>合约数</th>
+          <th>最后交易</th>
+          <th>ETH余额</th>
+          <th>Gas总消耗（USD）</th>
+          <th>状态</th>
+        </tr>
+      </thead>
+      <tbody id="resultBody"></tbody>
+    </table>
+  </div>
 
   <script>
     function formatTimeAgo(dateStr) {
