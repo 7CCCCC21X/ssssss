@@ -235,12 +235,10 @@
           const res = await fetch(url);
           const data = await res.json();
           const items = data.items || [];
-
           const userTxs = items.filter(tx => tx.from?.hash?.toLowerCase() === address.toLowerCase());
           allTxs.push(...userTxs);
 
           if (!data.next_page_params) break;
-
           const p = data.next_page_params;
           if (!p.block_number || !p.fee || !p.hash || p.index === undefined || !p.inserted_at || !p.value) break;
           const inserted_at = encodeURIComponent(p.inserted_at);
@@ -280,13 +278,11 @@
     async function startQuery(onlySelected = false) {
       const checkboxes = [...document.querySelectorAll('.row-checkbox')];
       const selectedAddrs = checkboxes.filter(cb => (!onlySelected || cb.checked)).map(cb => cb.dataset.address);
-
       if (selectedAddrs.length === 0) {
         alert("请选择至少一个地址！");
         return;
       }
 
-      // 禁用按钮 + 显示加载状态
       const queryBtn = document.getElementById("queryAllBtn");
       const selectedBtn = document.getElementById("querySelectedBtn");
       queryBtn.disabled = true;
@@ -294,6 +290,7 @@
       queryBtn.textContent = "查询中...";
       selectedBtn.textContent = "查询中...";
 
+      const resultsMap = {};
       let index = 0;
       const maxConcurrency = 5;
 
@@ -323,6 +320,12 @@
               <td>${statRes.feeUSD}</td>
               <td class="${hasError ? 'error' : ''}">${hasError ? txRes.error || statRes.error : "✅"}</td>
             `;
+
+            resultsMap[addr.toLowerCase()] = {
+              address: addr,
+              ...txRes,
+              ...statRes
+            };
           })());
         }
         await Promise.all(batch);
@@ -330,23 +333,48 @@
       }
 
       await runBatch();
+      const resultList = selectedAddrs.map(addr => resultsMap[addr.toLowerCase()]);
+      saveToCache(resultList);
 
-      // ✅ 保存查询地址缓存
-      saveToCache(selectedAddrs);
-
-      // 查询完成，恢复按钮
       queryBtn.disabled = false;
       selectedBtn.disabled = false;
       queryBtn.textContent = "开始查询";
       selectedBtn.textContent = "查询选定地址";
     }
 
-    // 页面加载时自动回显缓存地址
     window.addEventListener("DOMContentLoaded", () => {
       const cached = loadFromCache();
       if (cached.length > 0) {
-        document.getElementById("addressInput").value = cached.join("\n");
-        importAddresses();
+        document.getElementById("addressInput").value = cached.map(item => item.address).join("\n");
+        const tbody = document.getElementById("resultBody");
+        tbody.innerHTML = "";
+        allAddrs = cached.map(item => item.address);
+        cached.forEach((item, index) => {
+          const timeText = formatTimeAgo(item.lastTxTime);
+          const daysAgo = item.lastTxTime ? Math.floor((new Date() - new Date(item.lastTxTime)) / (1000 * 86400)) : null;
+          const timeColorClass = daysAgo > 7 ? "error" : "";
+          const hasError = item.error;
+
+          const row = document.createElement("tr");
+          row.innerHTML = `
+            <td><input type="checkbox" class="row-checkbox" data-address="${item.address}" checked /></td>
+            <td>${index + 1}</td>
+            <td style="max-width: 160px;">${item.address}</td>
+            <td>${item.txCount}</td>
+            <td>${item.dayActivity}</td>
+            <td>${item.weekActivity}</td>
+            <td>${item.monthActivity}</td>
+            <td>${item.contractActivity}</td>
+            <td class="${timeColorClass}">${timeText}</td>
+            <td>${item.ethBalance}</td>
+            <td>${item.feeUSD}</td>
+            <td class="${hasError ? 'error' : ''}">${hasError ? item.error : "✅"}</td>
+          `;
+          tbody.appendChild(row);
+          rowMap[item.address.toLowerCase()] = row;
+        });
+
+        document.getElementById("selectAll").checked = true;
       }
     });
   </script>
