@@ -48,6 +48,9 @@
       border: 1px solid #e0e0e0;
       padding: 10px;
       text-align: center;
+      font-size: 13px;
+      min-width: 90px;
+      white-space: nowrap;
     }
     th {
       background-color: #f0f2f5;
@@ -72,12 +75,12 @@
         <th><input type="checkbox" id="selectAll" onclick="toggleAll(this)" /></th>
         <th>#</th>
         <th>地址</th>
-        <th>交易数</th>
+        <th>TX</th>
         <th>日活</th>
         <th>周活</th>
         <th>月活</th>
-        <th>合约交互数</th>
-        <th>最后交易时间</th>
+        <th>合约数</th>
+        <th>最后交易</th>
         <th>ETH余额</th>
         <th>Gas总消耗（USD）</th>
         <th>状态</th>
@@ -91,12 +94,10 @@
       if (!dateStr) return '-';
       const date = new Date(dateStr);
       const now = new Date();
-      const diff = Math.floor((now - date) / 1000);
-      if (diff < 60) return '刚刚';
-      if (diff < 3600) return `${Math.floor(diff / 60)} 分钟前`;
-      if (diff < 86400) return `${Math.floor(diff / 3600)} 小时前`;
-      if (diff < 30 * 86400) return `${Math.floor(diff / 86400)} 天前`;
-      return `${Math.floor(diff / (30 * 86400))} 个月前`;
+      const diff = Math.floor((now - date) / 86400 / 1000); // 以天为单位
+      if (diff < 1) return '1 天前';
+      if (diff < 30) return `${diff} 天前`;
+      return `${Math.floor(diff / 30)} 个月前`;
     }
 
     function getDayKey(dateStr) {
@@ -123,7 +124,6 @@
           fetch(`https://soneium.blockscout.com/api/v2/addresses/${address}`).then(r => r.json()),
           fetch(`https://soneium.blockscout.com/api/v2/addresses/${address}/counters`).then(r => r.json())
         ]);
-
         const balance = parseFloat(metaRes.coin_balance || "0") / 1e18;
         const price = parseFloat(metaRes.exchange_rate || "0");
         const gasUsed = parseInt(counterRes.gas_usage_count || "0", 10);
@@ -161,7 +161,6 @@
 
           const p = data.next_page_params;
           if (!p.block_number || !p.fee || !p.hash || p.index === undefined || !p.inserted_at || !p.value) break;
-
           const inserted_at = encodeURIComponent(p.inserted_at);
           pageParams = `&block_number=${p.block_number}&fee=${p.fee}&hash=${p.hash}&index=${p.index}&inserted_at=${inserted_at}&value=${p.value}`;
         }
@@ -250,7 +249,10 @@
             const [txRes, statRes] = await Promise.all([fetchTxData(addr), fetchStats(addr)]);
             const row = [...document.querySelectorAll(`input[data-address="${addr}"]`)][0].parentElement.parentElement;
             const hasError = txRes.error || statRes.error;
+            const daysAgo = txRes.lastTxTime ? Math.floor((new Date() - new Date(txRes.lastTxTime)) / (1000 * 86400)) : null;
             const timeText = formatTimeAgo(txRes.lastTxTime);
+            const timeColorClass = daysAgo > 7 ? "error" : "";
+
             row.innerHTML = `
               <td><input type="checkbox" class="row-checkbox" data-address="${addr}" ${onlySelected ? "checked" : ""}/></td>
               <td>${allAddrs.indexOf(addr) + 1}</td>
@@ -260,7 +262,7 @@
               <td>${txRes.weekActivity}</td>
               <td>${txRes.monthActivity}</td>
               <td>${txRes.contractActivity}</td>
-              <td title="${txRes.lastTxTime || '-'}">${timeText}</td>
+              <td class="${timeColorClass}">${timeText}</td>
               <td>${statRes.ethBalance}</td>
               <td>${statRes.feeUSD}</td>
               <td class="${hasError ? 'error' : ''}">${hasError ? txRes.error || statRes.error : "✅"}</td>
@@ -284,7 +286,7 @@
       const cache = loadFromCache();
       if (cache.length > 0) {
         document.getElementById("addressInput").value = cache.map(item => item.address).join("\n");
-        startQuery();
+        // startQuery(); // ← 不再自动查询
       }
     });
   </script>
