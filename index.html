@@ -7,21 +7,22 @@
     body {
       font-family: 'Helvetica Neue', sans-serif;
       background: #f9f9f9;
-      padding: 20px 0;
+      margin: 0;
+      padding: 0;
       color: #333;
     }
 
     .container {
-      max-width: 1200px;
-      margin: auto;
-      padding: 0 20px;
+      width: 100%;
+      padding: 0 40px;
+      box-sizing: border-box;
     }
 
     .top-bar {
       position: sticky;
       top: 0;
       background: #f9f9f9;
-      padding-bottom: 10px;
+      padding: 20px 0 10px;
       z-index: 10;
     }
 
@@ -57,26 +58,27 @@
       margin-top: 20px;
       max-height: 70vh;
       overflow-y: auto;
+      border: 1px solid #eee;
+      border-radius: 8px;
+      background: #fff;
     }
 
     table {
       width: 100%;
       border-collapse: collapse;
-      border-radius: 10px;
-      overflow: hidden;
-      box-shadow: 0 0 10px rgba(0,0,0,0.05);
+      min-width: 1000px;
     }
 
     th, td {
       border: 1px solid #e0e0e0;
-      padding: 10px;
+      padding: 8px 6px;
       text-align: center;
       font-size: 13px;
-      min-width: 90px;
-      white-space: nowrap;
+      white-space: normal;
+      word-break: break-word;
     }
 
-    th {
+    thead th {
       position: sticky;
       top: 0;
       background-color: #f0f2f5;
@@ -98,7 +100,8 @@
       <h2>Soneium 批量活跃度查询</h2>
       <textarea id="addressInput" placeholder="请输入钱包地址，每行一个"></textarea>
       <button onclick="importAddresses()">导入地址</button>
-      <button onclick="startQuery()">开始查询</button>
+      <button onclick="startQuery(false)">开始查询</button>
+      <button onclick="startQuery(true)">查询选定地址</button>
     </div>
 
     <div class="table-wrapper">
@@ -122,6 +125,8 @@
         <tbody id="resultBody"></tbody>
       </table>
     </div>
+  </div>
+
   <script>
     let allAddrs = [];
     const rowMap = {};
@@ -164,7 +169,7 @@
         row.innerHTML = `
           <td><input type="checkbox" class="row-checkbox" data-address="${addr}" checked /></td>
           <td>${index + 1}</td>
-          <td>${addr}</td>
+          <td style="max-width: 160px; word-break: break-word;">${addr}</td>
           <td colspan="9">等待查询...</td>
         `;
         tbody.appendChild(row);
@@ -255,9 +260,11 @@
       }
     }
 
-    async function startQuery() {
+    async function startQuery(onlySelected = false) {
       const checkboxes = [...document.querySelectorAll('.row-checkbox')];
-      const selectedAddrs = checkboxes.filter(cb => cb.checked).map(cb => cb.dataset.address);
+      const selectedAddrs = checkboxes
+        .filter(cb => (!onlySelected || cb.checked))
+        .map(cb => cb.dataset.address);
 
       if (selectedAddrs.length === 0) {
         alert("请选择至少一个地址！");
@@ -282,7 +289,7 @@
             row.innerHTML = `
               <td><input type="checkbox" class="row-checkbox" data-address="${addr}" checked /></td>
               <td>${allAddrs.indexOf(addr) + 1}</td>
-              <td>${addr}</td>
+              <td style="max-width: 160px; word-break: break-word;">${addr}</td>
               <td>${txRes.txCount}</td>
               <td>${txRes.dayActivity}</td>
               <td>${txRes.weekActivity}</td>
