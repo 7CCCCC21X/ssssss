@@ -97,6 +97,11 @@
     .error {
       color: red;
     }
+
+    tfoot td {
+      font-weight: bold;
+      background-color: #f9f9f9;
+    }
   </style>
 </head>
 <body>
@@ -128,6 +133,7 @@
           </tr>
         </thead>
         <tbody id="resultBody"></tbody>
+        <tfoot id="summaryRow"></tfoot>
       </table>
     </div>
   </div>
@@ -193,6 +199,7 @@
         rowMap[addr.toLowerCase()] = row;
       });
       document.getElementById("selectAll").checked = true;
+      document.getElementById("summaryRow").innerHTML = "";
     }
 
     function toggleAll(source) {
@@ -212,7 +219,6 @@
         const gasPrice = 0.000000000054193601;
         const feeETH = gasUsed * gasPrice;
         const feeUSD = feeETH * price;
-
         return {
           ethBalance: balance.toFixed(4),
           feeUSD: feeUSD.toFixed(4),
@@ -228,7 +234,6 @@
       const pageSize = 50;
       let pageParams = "";
       let lastTime = null;
-
       try {
         while (true) {
           const url = `https://soneium.blockscout.com/api/v2/addresses/${address}/transactions?items_count=${pageSize}${pageParams}`;
@@ -237,19 +242,13 @@
           const items = data.items || [];
           const userTxs = items.filter(tx => tx.from?.hash?.toLowerCase() === address.toLowerCase());
           allTxs.push(...userTxs);
-
           if (!data.next_page_params) break;
           const p = data.next_page_params;
           if (!p.block_number || !p.fee || !p.hash || p.index === undefined || !p.inserted_at || !p.value) break;
           const inserted_at = encodeURIComponent(p.inserted_at);
           pageParams = `&block_number=${p.block_number}&fee=${p.fee}&hash=${p.hash}&index=${p.index}&inserted_at=${inserted_at}&value=${p.value}`;
         }
-
-        const days = new Set();
-        const weeks = new Set();
-        const months = new Set();
-        const contracts = new Set();
-
+        const days = new Set(), weeks = new Set(), months = new Set(), contracts = new Set();
         for (const tx of allTxs) {
           const date = tx.timestamp;
           if (!date || !tx.to || !tx.to.hash) continue;
@@ -258,9 +257,7 @@
           months.add(getMonthKey(date));
           contracts.add(tx.to.hash);
         }
-
         lastTime = allTxs.length > 0 ? allTxs[0].timestamp : null;
-
         return {
           txCount: allTxs.length,
           dayActivity: days.size,
@@ -278,21 +275,14 @@
     async function startQuery(onlySelected = false) {
       const checkboxes = [...document.querySelectorAll('.row-checkbox')];
       const selectedAddrs = checkboxes.filter(cb => (!onlySelected || cb.checked)).map(cb => cb.dataset.address);
-      if (selectedAddrs.length === 0) {
-        alert("请选择至少一个地址！");
-        return;
-      }
-
+      if (selectedAddrs.length === 0) return alert("请选择至少一个地址！");
       const queryBtn = document.getElementById("queryAllBtn");
       const selectedBtn = document.getElementById("querySelectedBtn");
-      queryBtn.disabled = true;
-      selectedBtn.disabled = true;
-      queryBtn.textContent = "查询中...";
-      selectedBtn.textContent = "查询中...";
+      queryBtn.disabled = selectedBtn.disabled = true;
+      queryBtn.textContent = selectedBtn.textContent = "查询中...";
 
       const resultsMap = {};
-      let index = 0;
-      const maxConcurrency = 5;
+      let index = 0, maxConcurrency = 5;
 
       async function runBatch() {
         const batch = [];
@@ -302,10 +292,8 @@
             const [txRes, statRes] = await Promise.all([fetchTxData(addr), fetchStats(addr)]);
             const row = rowMap[addr.toLowerCase()];
             const hasError = txRes.error || statRes.error;
-            const daysAgo = txRes.lastTxTime ? Math.floor((new Date() - new Date(txRes.lastTxTime)) / (1000 * 86400)) : null;
             const timeText = formatTimeAgo(txRes.lastTxTime);
-            const timeColorClass = daysAgo > 7 ? "error" : "";
-
+            const timeColorClass = txRes.lastTxTime && ((new Date() - new Date(txRes.lastTxTime)) / 86400000 > 7) ? "error" : "";
             row.innerHTML = `
               <td><input type="checkbox" class="row-checkbox" data-address="${addr}" checked /></td>
               <td>${allAddrs.indexOf(addr) + 1}</td>
@@ -318,14 +306,9 @@
               <td class="${timeColorClass}">${timeText}</td>
               <td>${statRes.ethBalance}</td>
               <td>${statRes.feeUSD}</td>
-              <td class="${hasError ? 'error' : ''}">${hasError ? txRes.error || statRes.error : "✅"}</td>
+              <td class="${hasError ? 'error' : ''}">${hasError ? (txRes.error || statRes.error) : "✅"}</td>
             `;
-
-            resultsMap[addr.toLowerCase()] = {
-              address: addr,
-              ...txRes,
-              ...statRes
-            };
+            resultsMap[addr.toLowerCase()] = { address: addr, ...txRes, ...statRes };
           })());
         }
         await Promise.all(batch);
@@ -335,27 +318,41 @@
       await runBatch();
       const resultList = selectedAddrs.map(addr => resultsMap[addr.toLowerCase()]);
       saveToCache(resultList);
+      showSummary(resultList);
 
-      queryBtn.disabled = false;
-      selectedBtn.disabled = false;
+      queryBtn.disabled = selectedBtn.disabled = false;
       queryBtn.textContent = "开始查询";
       selectedBtn.textContent = "查询选定地址";
+    }
+
+    function showSummary(data) {
+      const summary = data.reduce((acc, cur) => {
+        acc.eth += parseFloat(cur.ethBalance || 0);
+        acc.gas += parseFloat(cur.feeUSD || 0);
+        return acc;
+      }, { eth: 0, gas: 0 });
+
+      document.getElementById("summaryRow").innerHTML = `
+        <tr>
+          <td colspan="9">总计</td>
+          <td>${summary.eth.toFixed(4)}</td>
+          <td>${summary.gas.toFixed(4)}</td>
+          <td>-</td>
+        </tr>`;
     }
 
     window.addEventListener("DOMContentLoaded", () => {
       const cached = loadFromCache();
       if (cached.length > 0) {
-        document.getElementById("addressInput").value = cached.map(item => item.address).join("\n");
+        document.getElementById("addressInput").value = cached.map(x => x.address).join("\n");
+        allAddrs = cached.map(x => x.address);
         const tbody = document.getElementById("resultBody");
         tbody.innerHTML = "";
-        allAddrs = cached.map(item => item.address);
         cached.forEach((item, index) => {
-          const timeText = formatTimeAgo(item.lastTxTime);
-          const daysAgo = item.lastTxTime ? Math.floor((new Date() - new Date(item.lastTxTime)) / (1000 * 86400)) : null;
-          const timeColorClass = daysAgo > 7 ? "error" : "";
-          const hasError = item.error;
-
           const row = document.createElement("tr");
+          const timeAgo = formatTimeAgo(item.lastTxTime);
+          const color = item.lastTxTime && ((new Date() - new Date(item.lastTxTime)) / 86400000 > 7) ? "error" : "";
+          const err = item.error;
           row.innerHTML = `
             <td><input type="checkbox" class="row-checkbox" data-address="${item.address}" checked /></td>
             <td>${index + 1}</td>
@@ -365,15 +362,15 @@
             <td>${item.weekActivity}</td>
             <td>${item.monthActivity}</td>
             <td>${item.contractActivity}</td>
-            <td class="${timeColorClass}">${timeText}</td>
+            <td class="${color}">${timeAgo}</td>
             <td>${item.ethBalance}</td>
             <td>${item.feeUSD}</td>
-            <td class="${hasError ? 'error' : ''}">${hasError ? item.error : "✅"}</td>
+            <td class="${err ? 'error' : ''}">${err ? item.error : "✅"}</td>
           `;
           tbody.appendChild(row);
           rowMap[item.address.toLowerCase()] = row;
         });
-
+        showSummary(cached);
         document.getElementById("selectAll").checked = true;
       }
     });
