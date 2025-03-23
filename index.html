@@ -49,7 +49,12 @@
       transition: background 0.3s;
     }
 
-    button:hover {
+    button:disabled {
+      background: #999;
+      cursor: not-allowed;
+    }
+
+    button:hover:not(:disabled) {
       background: #0056b3;
     }
 
@@ -99,9 +104,9 @@
     <div class="top-bar">
       <h2>Soneium 批量活跃度查询</h2>
       <textarea id="addressInput" placeholder="请输入钱包地址，每行一个"></textarea>
-      <button onclick="importAddresses()">导入地址</button>
-      <button onclick="startQuery(false)">开始查询</button>
-      <button onclick="startQuery(true)">查询选定地址</button>
+      <button id="importBtn" onclick="importAddresses()">导入地址</button>
+      <button id="queryAllBtn" onclick="startQuery(false)">开始查询</button>
+      <button id="querySelectedBtn" onclick="startQuery(true)">查询选定地址</button>
     </div>
 
     <div class="table-wrapper">
@@ -159,6 +164,18 @@
       return `${d.getUTCFullYear()}-${d.getUTCMonth() + 1}`;
     }
 
+    function saveToCache(data) {
+      localStorage.setItem("soneium_cache", JSON.stringify(data));
+    }
+
+    function loadFromCache() {
+      try {
+        return JSON.parse(localStorage.getItem("soneium_cache") || "[]");
+      } catch (e) {
+        return [];
+      }
+    }
+
     function importAddresses() {
       const input = document.getElementById("addressInput").value.trim();
       allAddrs = input.split("\n").map(line => line.trim()).filter(line => line.length === 42 && line.startsWith("0x"));
@@ -169,7 +186,7 @@
         row.innerHTML = `
           <td><input type="checkbox" class="row-checkbox" data-address="${addr}" checked /></td>
           <td>${index + 1}</td>
-          <td style="max-width: 160px; word-break: break-word;">${addr}</td>
+          <td style="max-width: 160px;">${addr}</td>
           <td colspan="9">等待查询...</td>
         `;
         tbody.appendChild(row);
@@ -262,14 +279,20 @@
 
     async function startQuery(onlySelected = false) {
       const checkboxes = [...document.querySelectorAll('.row-checkbox')];
-      const selectedAddrs = checkboxes
-        .filter(cb => (!onlySelected || cb.checked))
-        .map(cb => cb.dataset.address);
+      const selectedAddrs = checkboxes.filter(cb => (!onlySelected || cb.checked)).map(cb => cb.dataset.address);
 
       if (selectedAddrs.length === 0) {
         alert("请选择至少一个地址！");
         return;
       }
+
+      // 禁用按钮 + 显示加载状态
+      const queryBtn = document.getElementById("queryAllBtn");
+      const selectedBtn = document.getElementById("querySelectedBtn");
+      queryBtn.disabled = true;
+      selectedBtn.disabled = true;
+      queryBtn.textContent = "查询中...";
+      selectedBtn.textContent = "查询中...";
 
       let index = 0;
       const maxConcurrency = 5;
@@ -289,7 +312,7 @@
             row.innerHTML = `
               <td><input type="checkbox" class="row-checkbox" data-address="${addr}" checked /></td>
               <td>${allAddrs.indexOf(addr) + 1}</td>
-              <td style="max-width: 160px; word-break: break-word;">${addr}</td>
+              <td style="max-width: 160px;">${addr}</td>
               <td>${txRes.txCount}</td>
               <td>${txRes.dayActivity}</td>
               <td>${txRes.weekActivity}</td>
@@ -307,7 +330,25 @@
       }
 
       await runBatch();
+
+      // ✅ 保存查询地址缓存
+      saveToCache(selectedAddrs);
+
+      // 查询完成，恢复按钮
+      queryBtn.disabled = false;
+      selectedBtn.disabled = false;
+      queryBtn.textContent = "开始查询";
+      selectedBtn.textContent = "查询选定地址";
     }
+
+    // 页面加载时自动回显缓存地址
+    window.addEventListener("DOMContentLoaded", () => {
+      const cached = loadFromCache();
+      if (cached.length > 0) {
+        document.getElementById("addressInput").value = cached.join("\n");
+        importAddresses();
+      }
+    });
   </script>
 </body>
 </html>
