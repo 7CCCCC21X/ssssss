@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8" />
+  <title>Soneium 活跃度查询</title>
+  <style>
+    body {
+      font-family: 'Helvetica Neue', sans-serif;
+      background: #f9f9f9;
+      padding: 40px;
+      max-width: 960px;
+      margin: auto;
+      color: #333;
+    }
+    textarea {
+      width: 100%;
+      height: 120px;
+      font-size: 14px;
+      padding: 10px;
+      border-radius: 8px;
+      border: 1px solid #ccc;
+      margin-bottom: 10px;
+      box-sizing: border-box;
+    }
+    button {
+      background: #007BFF;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      padding: 10px 20px;
+      font-weight: bold;
+      margin-right: 10px;
+      cursor: pointer;
+      transition: background 0.3s;
+    }
+    button:hover {
+      background: #0056b3;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 20px;
+      border-radius: 10px;
+      overflow: hidden;
+      box-shadow: 0 0 10px rgba(0,0,0,0.05);
+    }
+    th, td {
+      border: 1px solid #e0e0e0;
+      padding: 10px;
+      text-align: center;
+    }
+    th {
+      background-color: #f0f2f5;
+    }
+    tr:hover {
+      background-color: #f1faff;
+    }
+    .error {
+      color: red;
+    }
+  </style>
+</head>
+<body>
+  <h2>Soneium 批量活跃度查询</h2>
+  <textarea id="addressInput" placeholder="请输入钱包地址，每行一个"></textarea><br />
+  <button onclick="startQuery()">查询全部</button>
+  <button onclick="startQuery(true)">查询选中地址</button>
+
+  <table id="resultTable">
+    <thead>
+      <tr>
+        <th><input type="checkbox" id="selectAll" onclick="toggleAll(this)" /></th>
+        <th>#</th>
+        <th>地址</th>
+        <th>交易数</th>
+        <th>日活</th>
+        <th>周活</th>
+        <th>月活</th>
+        <th>合约交互数</th>
+        <th>最后交易时间</th>
+        <th>ETH余额</th>
+        <th>Gas总消耗（USD）</th>
+        <th>状态</th>
+      </tr>
+    </thead>
+    <tbody id="resultBody"></tbody>
+  </table>
+
+  <script>
+    function formatTimeAgo(dateStr) {
+      if (!dateStr) return '-';
+      const date = new Date(dateStr);
+      const now = new Date();
+      const diff = Math.floor((now - date) / 1000);
+      if (diff < 60) return '刚刚';
+      if (diff < 3600) return `${Math.floor(diff / 60)} 分钟前`;
+      if (diff < 86400) return `${Math.floor(diff / 3600)} 小时前`;
+      if (diff < 30 * 86400) return `${Math.floor(diff / 86400)} 天前`;
+      return `${Math.floor(diff / (30 * 86400))} 个月前`;
+    }
+
+    function getDayKey(dateStr) {
+      const d = new Date(dateStr);
+      return `${d.getUTCFullYear()}-${d.getUTCMonth() + 1}-${d.getUTCDate()}`;
+    }
+
+    function getWeekKey(dateStr) {
+      const d = new Date(dateStr);
+      d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+      const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+      const weekNo = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+      return `${d.getUTCFullYear()}W${weekNo}`;
+    }
+
+    function getMonthKey(dateStr) {
+      const d = new Date(dateStr);
+      return `${d.getUTCFullYear()}-${d.getUTCMonth() + 1}`;
+    }
+
+    async function fetchStats(address) {
+      try {
+        const [metaRes, counterRes] = await Promise.all([
+          fetch(`https://soneium.blockscout.com/api/v2/addresses/${address}`).then(r => r.json()),
+          fetch(`https://soneium.blockscout.com/api/v2/addresses/${address}/counters`).then(r => r.json())
+        ]);
+
+        const balance = parseFloat(metaRes.coin_balance || "0") / 1e18;
+        const price = parseFloat(metaRes.exchange_rate || "0");
+        const gasUsed = parseInt(counterRes.gas_usage_count || "0", 10);
+        const gasPrice = 0.000000000054193601;
+        const feeETH = gasUsed * gasPrice;
+        const feeUSD = feeETH * price;
+
+        return {
+          ethBalance: balance.toFixed(4),
+          feeUSD: feeUSD.toFixed(4),
+          error: null
+        };
+      } catch (e) {
+        return { ethBalance: "-", feeUSD: "-", error: "获取失败" };
+      }
+    }
+
+    async function fetchTxData(address) {
+      const allTxs = [];
+      const pageSize = 50;
+      let pageParams = "";
+      let lastTime = null;
+
+      try {
+        while (true) {
+          const url = `https://soneium.blockscout.com/api/v2/addresses/${address}/transactions?items_count=${pageSize}${pageParams}`;
+          const res = await fetch(url);
+          const data = await res.json();
+          const items = data.items || [];
+
+          const userTxs = items.filter(tx => tx.from?.hash?.toLowerCase() === address.toLowerCase());
+          allTxs.push(...userTxs);
+
+          if (!data.next_page_params) break;
+
+          const p = data.next_page_params;
+          if (!p.block_number || !p.fee || !p.hash || p.index === undefined || !p.inserted_at || !p.value) break;
+
+          const inserted_at = encodeURIComponent(p.inserted_at);
+          pageParams = `&block_number=${p.block_number}&fee=${p.fee}&hash=${p.hash}&index=${p.index}&inserted_at=${inserted_at}&value=${p.value}`;
+        }
+
+        const days = new Set();
+        const weeks = new Set();
+        const months = new Set();
+        const contracts = new Set();
+
+        for (const tx of allTxs) {
+          const date = tx.timestamp;
+          if (!date || !tx.to || !tx.to.hash) continue;
+          days.add(getDayKey(date));
+          weeks.add(getWeekKey(date));
+          months.add(getMonthKey(date));
+          contracts.add(tx.to.hash);
+        }
+
+        lastTime = allTxs.length > 0 ? allTxs[0].timestamp : null;
+
+        return {
+          txCount: allTxs.length,
+          dayActivity: days.size,
+          weekActivity: weeks.size,
+          monthActivity: months.size,
+          contractActivity: contracts.size,
+          lastTxTime: lastTime,
+          error: null
+        };
+      } catch (e) {
+        return { txCount: 0, dayActivity: 0, weekActivity: 0, monthActivity: 0, contractActivity: 0, lastTxTime: null, error: "交易查询失败" };
+      }
+    }
+
+    function toggleAll(source) {
+      const checkboxes = document.querySelectorAll('.row-checkbox');
+      checkboxes.forEach(cb => cb.checked = source.checked);
+    }
+
+    function saveToCache(data) {
+      localStorage.setItem("soneium_cache", JSON.stringify(data));
+    }
+
+    function loadFromCache() {
+      return JSON.parse(localStorage.getItem("soneium_cache") || "[]");
+    }
+
+    async function startQuery(onlySelected = false) {
+      const input = document.getElementById("addressInput").value.trim();
+      const allAddrs = input.split("\n").map(line => line.trim()).filter(line => line.length === 42 && line.startsWith("0x"));
+      const tbody = document.getElementById("resultBody");
+
+      if (!onlySelected) {
+        tbody.innerHTML = "";
+        allAddrs.forEach((addr, index) => {
+          const row = document.createElement("tr");
+          row.innerHTML = `
+            <td><input type="checkbox" class="row-checkbox" data-address="${addr}" /></td>
+            <td>${index + 1}</td>
+            <td>${addr}</td>
+            <td colspan="9">等待查询...</td>
+          `;
+          tbody.appendChild(row);
+        });
+      }
+
+      const checkboxes = [...document.querySelectorAll('.row-checkbox')];
+      const selectedAddrs = checkboxes
+        .filter(cb => (!onlySelected || cb.checked))
+        .map(cb => cb.dataset.address);
+
+      if (selectedAddrs.length === 0) {
+        alert("请选择至少一个地址！");
+        return;
+      }
+
+      const results = [];
+      const maxConcurrency = 5;
+      let index = 0;
+
+      async function runBatch() {
+        const batch = [];
+        while (index < selectedAddrs.length && batch.length < maxConcurrency) {
+          const addr = selectedAddrs[index++];
+          batch.push((async () => {
+            const [txRes, statRes] = await Promise.all([fetchTxData(addr), fetchStats(addr)]);
+            const row = [...document.querySelectorAll(`input[data-address="${addr}"]`)][0].parentElement.parentElement;
+            const hasError = txRes.error || statRes.error;
+            const timeText = formatTimeAgo(txRes.lastTxTime);
+            row.innerHTML = `
+              <td><input type="checkbox" class="row-checkbox" data-address="${addr}" ${onlySelected ? "checked" : ""}/></td>
+              <td>${allAddrs.indexOf(addr) + 1}</td>
+              <td>${addr}</td>
+              <td>${txRes.txCount}</td>
+              <td>${txRes.dayActivity}</td>
+              <td>${txRes.weekActivity}</td>
+              <td>${txRes.monthActivity}</td>
+              <td>${txRes.contractActivity}</td>
+              <td title="${txRes.lastTxTime || '-'}">${timeText}</td>
+              <td>${statRes.ethBalance}</td>
+              <td>${statRes.feeUSD}</td>
+              <td class="${hasError ? 'error' : ''}">${hasError ? txRes.error || statRes.error : "✅"}</td>
+            `;
+            results.push({
+              address: addr,
+              ...txRes,
+              ...statRes
+            });
+          })());
+        }
+        await Promise.all(batch);
+        if (index < selectedAddrs.length) await runBatch();
+      }
+
+      await runBatch();
+      saveToCache(results);
+    }
+
+    window.addEventListener("DOMContentLoaded", () => {
+      const cache = loadFromCache();
+      if (cache.length > 0) {
+        document.getElementById("addressInput").value = cache.map(item => item.address).join("\n");
+        startQuery();
+      }
+    });
+  </script>
+</body>
+</html>
